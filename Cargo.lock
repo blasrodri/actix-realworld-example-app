@@ -74,7 +74,9 @@ dependencies = [
  "futures",
  "http",
  "log",
+ "openssl",
  "tokio-current-thread",
+ "tokio-openssl",
  "tokio-tcp",
  "trust-dns-resolver",
 ]
@@ -124,6 +126,7 @@ dependencies = [
  "lazy_static",
  "log",
  "mime",
+ "openssl",
  "percent-encoding 2.1.0",
  "rand 0.7.1",
  "regex",
@@ -182,8 +185,10 @@ dependencies = [
  "mio",
  "net2",
  "num_cpus",
+ "openssl",
  "slab",
  "tokio-io",
+ "tokio-openssl",
  "tokio-reactor",
  "tokio-signal",
  "tokio-tcp",
@@ -198,6 +203,7 @@ checksum = "483a34989c682d93142bacad6300375bb6ad8002d2e0bb249dbad86128b9ff30"
 dependencies = [
  "futures",
  "tokio-io",
+ "tokio-openssl",
  "tokio-tcp",
 ]
 
@@ -266,6 +272,7 @@ dependencies = [
  "log",
  "mime",
  "net2",
+ "openssl",
  "parking_lot 0.9.0",
  "regex",
  "serde",
@@ -379,6 +386,7 @@ dependencies = [
  "futures",
  "log",
  "mime",
+ "openssl",
  "percent-encoding 2.1.0",
  "rand 0.7.1",
  "serde",
@@ -611,6 +619,7 @@ dependencies = [
  "libreauth",
  "log",
  "num_cpus",
+ "openssl",
  "regex",
  "serde",
  "serde_derive",
@@ -2343,6 +2352,17 @@ dependencies = [
  "bytes",
  "futures",
  "log",
+]
+
+[[package]]
+name = "tokio-openssl"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "771d6246b170ae108d67d9963c23f31a579016c016d73bd4bd7d6ef0252afda7"
+dependencies = [
+ "futures",
+ "openssl",
+ "tokio-io",
 ]
 
 [[package]]

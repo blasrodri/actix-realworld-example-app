@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 actix = "0.8.3"
-actix-web = "1.0.7"
+actix-web = { version = "1.0.7", features = ["ssl"] }
 actix-cors = "0.1.0"
 actix-service = "0.4.2"
 actix-http = "0.2.10"
@@ -32,3 +32,4 @@ validator = "0.8.0"
 validator_derive = "0.8.0"
 libreauth = "0.14.1"
 acme-micro = "0.12.0"
+openssl = { version = "0.10", features = ["v110"] }

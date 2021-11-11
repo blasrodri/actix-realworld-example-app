@@ -6,8 +6,8 @@ pub struct CertConfig {
     pub contact_email: String,
     pub domain: String,
     pub challenge_path: PathBuf,
-    pub acme_private_key_pem: Option<PathBuf>,
-    pub certificate: Option<PathBuf>,
+    pub acme_private_key_pem_path: PathBuf,
+    pub certificate_path: PathBuf,
 }
 
 use acme_micro::create_p384_key;
@@ -19,18 +19,12 @@ const DAYS_THRESHOLD: i64 = 7; // amount of days
 pub fn request_cert(conf: &CertConfig) -> Result<Certificate, Error> {
     // check if the certificate is valid, then return it
 
-    match (&conf.certificate, &conf.acme_private_key_pem) {
-        (None, _) => (),
-        (_, None) => (),
-        (Some(cert_path), Some(acme_private_key_pem_path)) => {
-            let certificate = get_certificate_from_keys(
-                acme_private_key_pem_path.as_path(),
-                cert_path.as_path(),
-            )?;
-            if certificate.valid_days_left()? > DAYS_THRESHOLD {
-                return Ok(certificate);
-            }
-        }
+    let certificate = get_certificate_from_keys(
+        &conf.acme_private_key_pem_path.as_path(),
+        &conf.certificate_path.as_path(),
+    )?;
+    if certificate.valid_days_left()? > DAYS_THRESHOLD {
+        return Ok(certificate);
     }
 
     // Use DirectoryUrl::LetsEncrypStaging for dev/testing.
@@ -42,12 +36,13 @@ pub fn request_cert(conf: &CertConfig) -> Result<Certificate, Error> {
     // Your contact addresses, note the `mailto:`
     let contact = vec![conf.contact_email.clone()];
 
-    let acc = match &conf.acme_private_key_pem {
-        Some(acme_privkey_pem_path) => {
-            let privkey = fs::read_to_string(acme_privkey_pem_path).map_err(Error::new)?;
+    let acc = match fs::File::open(&conf.acme_private_key_pem_path) {
+        Ok(_) => {
+            let privkey =
+                fs::read_to_string(&conf.acme_private_key_pem_path).map_err(Error::new)?;
             dir.load_account(&privkey, contact)?
         }
-        None => {
+        Err(_) => {
             // Generate a private key and register an account with your ACME provider.
             // You should write it to disk any use `load_account` afterwards.
             dir.register_account(contact.clone())?
