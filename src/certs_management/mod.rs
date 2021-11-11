@@ -1,34 +1,61 @@
-use std::fs::{self, File};
+use std::fs::{self};
 use std::path::{Path, PathBuf};
-
-use acme_lib::persist::FilePersist;
-use acme_lib::{create_p384_key, Certificate};
-use acme_lib::{Directory, DirectoryUrl, Error};
 
 pub struct CertConfig {
     pub cert_dir: PathBuf,
     pub contact_email: String,
     pub domain: String,
     pub challenge_path: PathBuf,
+    pub acme_private_key_pem: Option<PathBuf>,
+    pub certificate: Option<PathBuf>,
 }
 
-pub fn request_cert(conf: &CertConfig) -> Result<(), Error> {
-    // Use DirectoryUrl::LetsEncryptStaging for dev/testing.
+use acme_micro::create_p384_key;
+use acme_micro::{Certificate, Directory, DirectoryUrl, Error};
+use std::time::Duration;
+
+const DAYS_THRESHOLD: i64 = 7; // amount of days
+
+pub fn request_cert(conf: &CertConfig) -> Result<Certificate, Error> {
+    // check if the certificate is valid, then return it
+
+    match (&conf.certificate, &conf.acme_private_key_pem) {
+        (None, _) => (),
+        (_, None) => (),
+        (Some(cert_path), Some(acme_private_key_pem_path)) => {
+            let certificate = get_certificate_from_keys(
+                acme_private_key_pem_path.as_path(),
+                cert_path.as_path(),
+            )?;
+            if certificate.valid_days_left()? > DAYS_THRESHOLD {
+                return Ok(certificate);
+            }
+        }
+    }
+
+    // Use DirectoryUrl::LetsEncrypStaging for dev/testing.
     let url = DirectoryUrl::LetsEncrypt;
 
-    // Save/load keys and certificates to current dir.
-    let persist = FilePersist::new(conf.cert_dir.as_path());
-
     // Create a directory entrypoint.
-    let dir = Directory::from_url(persist, url)?;
+    let dir = Directory::from_url(url)?;
 
-    // Reads the private account key from persistence, or
-    // creates a new one before accessing the API to establish
-    // that it's there.
-    let acc = dir.account(&conf.contact_email)?;
+    // Your contact addresses, note the `mailto:`
+    let contact = vec![conf.contact_email.clone()];
+
+    let acc = match &conf.acme_private_key_pem {
+        Some(acme_privkey_pem_path) => {
+            let privkey = fs::read_to_string(acme_privkey_pem_path).map_err(Error::new)?;
+            dir.load_account(&privkey, contact)?
+        }
+        None => {
+            // Generate a private key and register an account with your ACME provider.
+            // You should write it to disk any use `load_account` afterwards.
+            dir.register_account(contact.clone())?
+        }
+    };
 
     // Order a new TLS certificate for a domain.
-    let mut ord_new = acc.new_order(&conf.domain, &[])?;
+    let mut ord_new = acc.new_order(conf.domain.as_str(), &[])?;
 
     // If the ownership of the domain(s) have already been
     // authorized in a previous order, you might be able to
@@ -53,28 +80,28 @@ pub fn request_cert(conf: &CertConfig) -> Result<(), Error> {
         // certificate for:
         //
         // http://mydomain.io/.well-known/acme-challenge/<token>
-        let chall = auths[0].http_challenge();
+        let chall = auths[0].http_challenge().unwrap();
 
         // The token is the filename.
         let token = chall.http_token();
         let path = conf.challenge_path.as_path().join(token);
 
         // The proof is the contents of the file
-        let proof = chall.http_proof();
+        let proof = chall.http_proof()?;
 
         // Here you must do "something" to place
         // the file/contents in the correct place.
         update_proof_in_path(&path, proof)?;
 
-        // After the file is accessible from the web,
-        // this tells the ACME API to start checking the
+        // After the file is accessible from the web, the calls
+        // this to tell the ACME API to start checking the
         // existence of the proof.
         //
         // The order at ACME will change status to either
         // confirm ownership of the domain, or fail due to the
         // not finding the proof. To see the change, we poll
         // the API with 5000 milliseconds wait between.
-        chall.validate(5000)?;
+        chall.validate(Duration::from_millis(5000))?;
 
         // Update the state against the ACME API.
         ord_new.refresh()?;
@@ -83,27 +110,33 @@ pub fn request_cert(conf: &CertConfig) -> Result<(), Error> {
     // Ownership is proven. Create a private key for
     // the certificate. These are provided for convenience, you
     // can provide your own keypair instead if you want.
-    let pkey_pri = create_p384_key();
+    let pkey_pri = create_p384_key()?;
 
     // Submit the CSR. This causes the ACME provider to enter a
     // state of "processing" that must be polled until the
     // certificate is either issued or rejected. Again we poll
     // for the status change.
-    let ord_cert = ord_csr.finalize_pkey(pkey_pri, 5000)?;
+    let ord_cert = ord_csr.finalize_pkey(pkey_pri, Duration::from_millis(5000))?;
 
-    // Now download the certificate. Also stores the cert in
-    // the persistence.
-    let cert = ord_cert.download_and_save_cert()?;
-    Ok(store_certificate(&conf.cert_dir.as_path(), cert)?)
+    // Finally download the certificate.
+    let cert = ord_cert.download_cert()?;
+    Ok(cert)
 }
 
 fn update_proof_in_path(proof_path: &Path, proof: String) -> Result<(), Error> {
-    fs::write(proof_path, proof).map_err(|e| Error::Other(e.to_string()))
+    fs::write(proof_path, proof).map_err(Error::new)
 }
 
-fn store_certificate(cert_path: &Path, cert: Certificate) -> Result<(), Error> {
-    fs::write(cert_path.join("acme.crt"), cert.certificate())
-        .map_err(|e| Error::Other(e.to_string()))?;
-    fs::write(cert_path.join("acme.key"), cert.private_key())
-        .map_err(|e| Error::Other(e.to_string()))
+pub fn store_certificate(cert_path: &Path, cert: Certificate) -> Result<(), Error> {
+    fs::write(cert_path.join("acme.crt"), cert.certificate()).map_err(Error::new)?;
+    fs::write(cert_path.join("acme.key"), cert.private_key()).map_err(Error::new)
+}
+
+pub fn get_certificate_from_keys(
+    private_key_pem_path: &Path,
+    certificate_path: &Path,
+) -> Result<Certificate, Error> {
+    let private_key_pem = fs::read_to_string(private_key_pem_path).map_err(Error::new)?;
+    let certificate = fs::read_to_string(certificate_path).map_err(Error::new)?;
+    Certificate::parse(private_key_pem, certificate)
 }
