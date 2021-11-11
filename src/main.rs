@@ -13,6 +13,7 @@ extern crate serde_json;
 extern crate validator_derive;
 
 mod app;
+mod certs_management;
 mod db;
 mod error;
 mod models;
